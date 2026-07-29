@@ -19,7 +19,7 @@ st.markdown("مجهز به ماشین‌حساب زنده سفارشات، سا�
 @st.cache_data(ttl=86400) # ذخیره لیست ارزها در حافظه موقت برای 24 ساعت تا سایت کند نشود
 def get_all_pairs():
     try:
-        exchange_temp = ccxt.bybit()
+        exchange_temp = ccxt.kucoin({'enableRateLimit': True})
         markets = exchange_temp.load_markets()
         usdt_pairs = [market['symbol'] for market in markets.values() if market['spot'] and market['quote'] == 'USDT']
         return sorted(usdt_pairs)
@@ -75,7 +75,7 @@ if run_btn:
     with st.spinner(f"در حال دریافت اطلاعات و تحلیل ارز {symbol}..."):
         
         # 1. دریافت دیتا
-        exchange = ccxt.bybit()
+        exchange = ccxt.kucoin({'enableRateLimit': True})
         
         all_bars = []
         since = None
