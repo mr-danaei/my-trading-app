@@ -13,18 +13,13 @@ import plotly.graph_objects as go
 # --- تنظیمات ظاهر صفحه ---
 st.set_page_config(page_title="AI Breakout Pro Dashboard", page_icon="🤖", layout="wide")
 st.title("🚀 داشبورد پیشرفته تحلیل شکست با هوش مصنوعی (نسخه کامل و جامع)")
-st.markdown("مجهز به ماشین‌حساب زنده سفارشات، سیستم دفاع هوشمند و اتصال به بایننس.")
+st.markdown("مجهز به ماشین‌حساب زنده سفارشات، ساعت جهانی صرافی و قابلیت پشتیبانی از تمام ارزهای بازار اسپات.")
 
 # --- تابع استخراج خودکار تمام جفت ارزهای بازار اسپات صرافی ---
 @st.cache_data(ttl=86400) # ذخیره لیست ارزها در حافظه موقت برای 24 ساعت تا سایت کند نشود
 def get_all_pairs():
     try:
-        exchange_temp = ccxt.binance({
-            'proxies': {
-                'http': 'http://127.0.0.1:10808',
-                'https': 'http://127.0.0.1:10808',
-            }
-        })
+        exchange_temp = ccxt.kucoin({'enableRateLimit': True})
         markets = exchange_temp.load_markets()
         usdt_pairs = [market['symbol'] for market in markets.values() if market['spot'] and market['quote'] == 'USDT']
         return sorted(usdt_pairs)
@@ -74,32 +69,13 @@ initial_capital = st.sidebar.number_input("سرمایه اولیه (دلار)", 
 risk_per_trade_pct = st.sidebar.number_input("ریسک در هر معامله (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
 fee_rate = st.sidebar.number_input("کارمزد صرافی (درصد)", min_value=0.0, max_value=1.0, value=0.1, step=0.01) / 100.0
 
-# ایجاد یک حافظه ماندگار برای جلوگیری از رفرش شدن صفحه
-if 'analyzed' not in st.session_state:
-    st.session_state.analyzed = False
-
 run_btn = st.sidebar.button("🔄 اجرای تحلیل کامل و بک‌تست")
 
-# اگر کاربر دکمه را زد، در حافظه ثبت کن که تحلیل انجام شده است
 if run_btn:
-    st.session_state.analyzed = True
-
-# حالا به جای اینکه فقط به دکمه وابسته باشیم، حافظه را چک می‌کنیم
-if st.session_state.analyzed:
     with st.spinner(f"در حال دریافت اطلاعات و تحلیل ارز {symbol}..."):
         
-        # 1. دریافت دیتا و اتصال به اکانت دمو بایننس (Testnet)
-        exchange = ccxt.binance({ 
-            'apiKey': 'PYJEU9dyL6DRvknvvvr8Xb5GiYhKGVns3zaGLv4CLHoLXIsiBNdDNWNsIimZxmez',       
-            'secret': '7Uv3OGwtqhk0nZf2jOTEKKMZ28QdWY3Jq4Pe0mC9gLUBUyju5PhqXmaAww33uHvN',    
-            'enableRateLimit': True,
-            'options': {
-                'defaultType': 'spot', 
-                'fetchOpenOrders': {'warnWithoutSymbol': False}
-            },
-            'timeout': 30000
-        })
-        exchange.set_sandbox_mode(True) 
+        # 1. دریافت دیتا
+        exchange = ccxt.kucoin({'enableRateLimit': True})
         
         all_bars = []
         since = None
@@ -249,29 +225,6 @@ if st.session_state.analyzed:
             signal_allowed = False
         
         # ==========================================
-        # لایه دفاع هوشمند (Smart Invalidation)
-        # ==========================================
-        try:
-            open_orders_symbol = exchange.fetch_open_orders(symbol)
-            if len(open_orders_symbol) > 0:
-                current_trend = latest_row['uptrend'].values[0]
-                canceled_count = 0
-                for ord in open_orders_symbol:
-                    # لغو تله خرید در صورت نزولی شدن روند
-                    if ord['side'].lower() == 'buy' and current_trend == 0:
-                        exchange.cancel_order(ord['id'], symbol)
-                        canceled_count += 1
-                    # لغو تله فروش در صورت صعودی شدن روند
-                    elif ord['side'].lower() == 'sell' and current_trend == 1:
-                        exchange.cancel_order(ord['id'], symbol)
-                        canceled_count += 1
-                
-                if canceled_count > 0:
-                    st.warning(f"🛡️ **دفاع سیستم:** {canceled_count} تله‌ی قبلی روی ارز {symbol} به دلیل تغییر روند (نقض EMA200) شناسایی، لغو و سرمایه شما آزاد شد.")
-        except:
-            pass 
-        
-        # ==========================================
         # رندر داشبورد گرافیکی
         # ==========================================
         st.success(f"✅ پردازش هوش مصنوعی برای ارز {symbol} با موفقیت به پایان رسید.")
@@ -288,62 +241,7 @@ if st.session_state.analyzed:
             elif prediction == 1 and latest_row['uptrend'].values[0] == 0: signal_text = "🔴 سیگنال SHORT"
             else: signal_text = "⚪ صبر کنید"
             st.metric(label="دستور لایو سیستم", value=signal_text)
-
-        # --- بخش بررسی وضعیت صرافی (مکان جدید: همیشه قابل مشاهده است) ---
-        st.markdown("### 🏦 وضعیت حساب و سفارشات در صرافی بایننس (Testnet)")
-        
-        col_btn1, col_btn2 = st.columns(2)
-        
-        with col_btn1:
-            if st.button("🔍 استعلام موجودی و تمام سفارشات باز"):
-                try:
-                    with st.spinner("در حال دریافت کل اطلاعات لایو از سرورهای بایننس..."):
-                        balance = exchange.fetch_balance()
-                        non_zero_balances = []
-                        for asset, values in balance.items():
-                            if isinstance(values, dict) and 'total' in values and values['total'] > 0:
-                                non_zero_balances.append({
-                                    'ارز (Coin)': asset,
-                                    'آزاد (Free)': values.get('free', 0.0),
-                                    'فریز/درگیر سفارش (Frozen)': values.get('used', 0.0),
-                                    'مجموع (Total)': values.get('total', 0.0)
-                                })
-                        
-                        if non_zero_balances:
-                            st.success("💰 **وضعیت کیف پول شما (شامل پول‌های آزاد و فریز شده):**")
-                            df_balances = pd.DataFrame(non_zero_balances)
-                            st.dataframe(df_balances, use_container_width=True, hide_index=True)
-                        else:
-                            st.warning("کیف پول شما کاملاً خالی است!")
-                            
-                        st.markdown("---")
-                        
-                        open_orders = exchange.fetch_open_orders()
-                        if len(open_orders) > 0:
-                            st.info(f"📋 **شما در کل صرافی {len(open_orders)} سفارش باز (فعال نشده) دارید:**")
-                            for ord in open_orders:
-                                st.write(f"🔹 **ارز:** `{ord['symbol']}` | **نوع:** `{ord['side'].upper()}` | **قیمت تله:** `{ord['price']}` | **حجم:** `{ord['amount']}`")
-                        else:
-                            st.warning("هیچ سفارش بازی در صرافی یافت نشد (تله‌ها یا هنوز کاشته نشده‌اند و یا قیمت به آن‌ها رسیده و معامله انجام شده است).")
-                except Exception as e:
-                    st.error(f"❌ خطا در دریافت اطلاعات از صرافی: {e}")
-
-        # --- دکمه جدید: لغو دستی (Panic Button) ---
-        with col_btn2:
-            if st.button("🗑 لغو دستی تمام سفارشات باز (آزادسازی دارایی)"):
-                try:
-                    with st.spinner("در حال ارسال دستور لغو کلی به سرورهای بایننس..."):
-                        open_orders_all = exchange.fetch_open_orders()
-                        if len(open_orders_all) > 0:
-                            for ord in open_orders_all:
-                                exchange.cancel_order(ord['id'], ord['symbol'])
-                            st.success(f"✅ تعداد {len(open_orders_all)} سفارش با موفقیت لغو شد و دارایی‌های فریز شده‌ی شما آزاد گردید.")
-                        else:
-                            st.warning("هیچ سفارش بازی برای لغو کردن وجود ندارد.")
-                except Exception as e:
-                    st.error(f"❌ خطا در لغو سفارشات: {e}")
-        # -------------------------------------------------------------  
-
+            
         # کادر نمایش اعداد دقیق سفارشات
         if signal_allowed and prediction == 1:
             buffer = latest_row['prev_atr'].values[0] * 0.1
@@ -361,39 +259,11 @@ if st.session_state.analyzed:
                     f"🛑 **حد ضرر (Stop Loss):** `{round(sl, 4)}` \n\n"
                     f"🏆 **حد سود (Take Profit):** `{round(tp, 4)}`")
             
-            # --- بخش جدید: اجرای خودکار معامله (محیط تستی بایننس) ---
-            st.markdown("### ⚙️ اجرای خودکار معامله (محیط تستی بایننس)")
-            if st.button("🤖 ارسال اتوماتیک این سیگنال به صرافی دمو"):
-                try:
-                    with st.spinner("در حال برقراری ارتباط امن با هسته معاملاتی بایننس..."):
-                        side_order = 'buy' if latest_row['uptrend'].values[0] == 1 else 'sell'
-                        dec = 8 if entry < 1 else 4
-                        
-                        trade_size_usd = 100.0
-                        amount_crypto = trade_size_usd / entry
-                        
-                        params = {
-                            'stopPrice': round(entry, dec) 
-                        }
-                        
-                        order = exchange.create_order(
-                            symbol=symbol,
-                            type='STOP_LOSS_LIMIT',
-                            side=side_order,
-                            amount=amount_crypto,
-                            price=round(entry, dec),
-                            params=params
-                        )
-                        st.success("✅ سفارش شرطی (تله Breakout) با موفقیت به صرافی بایننس Testnet ارسال شد!")
-                        st.info("💡 نکته: دارایی شما تا رسیدن قیمت به نقطه ورود فریز باقی می‌ماند.")
-                except Exception as e:
-                    st.error(f"❌ خطا در ارسال سفارش به صرافی: {e}")
-
             # --- کدهای جدید: رسم نمودار گرافیکی سیگنال ---
             st.markdown("### 📊 نمودار زنده سیگنال (نقاط ورود و خروج)")
             
+            # استخراج ۵۰ کندل آخر برای نمایش بهتر
             df_plot = df_reset.tail(50)
-            dec_chart = 8 if entry < 1 else 4
             
             fig = go.Figure(data=[go.Candlestick(x=df_plot['timestamp'],
                             open=df_plot['open'],
@@ -402,12 +272,18 @@ if st.session_state.analyzed:
                             close=df_plot['close'],
                             name="نوسان قیمت")])
             
-            fig.add_hline(y=entry, line_dash="dash", line_color="blue", annotation_text=f"ورود (Entry): {round(entry, dec_chart)}", annotation_position="top right")
-            fig.add_hline(y=tp, line_dash="solid", line_color="green", annotation_text=f"حد سود (TP): {round(tp, dec_chart)}", annotation_position="top right")
-            fig.add_hline(y=sl, line_dash="solid", line_color="red", annotation_text=f"حد ضرر (SL): {round(sl, dec_chart)}", annotation_position="bottom right")
+            # رسم خط آبی (نقطه ورود)
+            fig.add_hline(y=entry, line_dash="dash", line_color="blue", annotation_text=f"ورود (Entry): {round(entry, 4)}", annotation_position="top right")
+            
+            # رسم خط سبز (حد سود)
+            fig.add_hline(y=tp, line_dash="solid", line_color="green", annotation_text=f"حد سود (TP): {round(tp, 4)}", annotation_position="top right")
+            
+            # رسم خط قرمز (حد ضرر)
+            fig.add_hline(y=sl, line_dash="solid", line_color="red", annotation_text=f"حد ضرر (SL): {round(sl, 4)}", annotation_position="bottom right")
             
             fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
+            # ----------------------------------------------
             
         st.markdown("---")
         
